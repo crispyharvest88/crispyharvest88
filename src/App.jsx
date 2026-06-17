@@ -40,7 +40,7 @@ import {
 import { deleteDoc, setDoc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 
-const BRAND_LOGO = "${import.meta.env.BASE_URL}img/crispylogo.png";
+const BRAND_LOGO = `${import.meta.env.BASE_URL}img/crispylogo.png`;
 const BUSINESS_WHATSAPP_NUMBER = "6587977816";
 const ADMIN_EMAILS = ["crispyharvest88.biz@gmail.com"];
 
@@ -54,7 +54,7 @@ const COOKIE_DATA = [
     shortDescription:
       "Our #1 best seller — a viral hit that pairs a soft, chewy exterior with a rich, crunchy pistachio interior.",
     price: 6.5,
-    image: "${import.meta.env.BASE_URL}img/pistachio.jpg",
+    image: `${import.meta.env.BASE_URL}img/pistachio.jpg`,
   },
   {
     id: "2",
@@ -65,7 +65,7 @@ const COOKIE_DATA = [
     shortDescription:
       "Our signature chewy shell with a creamy hazelnut filling and crispy wafer interior.",
     price: 6.5,
-    image: "${import.meta.env.BASE_URL}img/kinderbueno.png",
+    image: `${import.meta.env.BASE_URL}img/kinderbueno.png`,
   },
   {
     id: "3",
@@ -76,7 +76,7 @@ const COOKIE_DATA = [
     shortDescription:
       "Smooth Lotus Biscoff spread and crushed biscuit inside our signature chewy shell.",
     price: 6.5,
-    image: "${import.meta.env.BASE_URL}img/biscoff.jpg",
+    image: `${import.meta.env.BASE_URL}img/biscoff.jpg`,
   },
   {
     id: "4",
@@ -87,7 +87,7 @@ const COOKIE_DATA = [
     shortDescription:
       "Our signature chewy shell with a rich, smooth Nutella hazelnut chocolate filling.",
     price: 6.5,
-    image: "${import.meta.env.BASE_URL}img/nutella.png",
+    image: `${import.meta.env.BASE_URL}img/nutella.png`,
   },
   {
     id: "5",
@@ -98,7 +98,7 @@ const COOKIE_DATA = [
     shortDescription:
       "Creamy vanilla filling with crushed cookie pieces inside our signature chewy shell.",
     price: 6.5,
-    image: "${import.meta.env.BASE_URL}img/cac.png",
+    image: `${import.meta.env.BASE_URL}img/cac.png`,
   },
 ];
 
