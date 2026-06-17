@@ -482,7 +482,7 @@ export default function App() {
     }
 
     try {
-      const response = await fetch("https://crispyharvest-backend.onrender.com", {
+      const response = await fetch("https://crispyharvest-backend.onrender.com/api/send-reset-email", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
