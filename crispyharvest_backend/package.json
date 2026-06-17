@@ -10,6 +10,7 @@
     "dotenv": "latest",
     "express": "latest",
     "firebase-admin": "latest",
-    "nodemailer": "latest"
+    "nodemailer": "latest",
+    "resend": "^6.13.0"
   }
 }
