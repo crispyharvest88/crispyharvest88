@@ -37,14 +37,6 @@ admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD,
-  },
-});
-
 app.get("/", (req, res) => {
   res.send("Crispy Harvest backend is running.");
 });
@@ -99,35 +91,6 @@ app.post("/api/send-reset-email", async (req, res) => {
 
     console.log("Reset email sent with Resend:", data?.id);
     return res.json({ message: "Reset email sent." });
-
-    await transporter.sendMail({
-      from: `"Crispy Harvest" <${process.env.GMAIL_USER}>`,
-      to: cleanEmail,
-      subject: "Reset your Crispy Harvest password",
-      html: `
-        <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-          <h2>Reset your Crispy Harvest password</h2>
-
-          <p>Hello,</p>
-
-          <p>Click the button below to reset your password.</p>
-
-          <p>
-            <a href="${resetLink}" style="background:#A37F61;color:white;padding:12px 18px;border-radius:8px;text-decoration:none;display:inline-block;">
-              Reset Password
-            </a>
-          </p>
-
-          <p>If the button does not work, copy and paste this link:</p>
-
-          <p>${resetLink}</p>
-
-          <p>If you did not request this, you can ignore this email.</p>
-
-          <p>Thank you,<br/>Crispy Harvest Team</p>
-        </div>
-      `,
-    });
 
     return res.json({
       message: "Reset email sent.",
