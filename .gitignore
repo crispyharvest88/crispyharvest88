@@ -1,0 +1,10 @@
+node_modules
+dist
+
+.env
+*.env
+
+crispyharvest_backend/.env
+crispyharvest_backend/serviceAccountKey.json
+
+.DS_Store
