@@ -3,7 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import admin from "firebase-admin";
 import fs from "fs";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
 dotenv.config();
 
@@ -24,6 +24,11 @@ app.use(
 
 app.use(express.json());
 
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+const FROM_EMAIL =
+  process.env.RESEND_FROM_EMAIL || "Crispy Harvest 88 <onboarding@resend.dev>";
+
 const serviceAccount = JSON.parse(
   fs.readFileSync("./serviceAccountKey.json", "utf8")
 );
@@ -33,18 +38,11 @@ admin.initializeApp({
 });
 
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false,
-  requireTLS: true,
-  family: 4,
+  service: "gmail",
   auth: {
     user: process.env.GMAIL_USER,
     pass: process.env.GMAIL_APP_PASSWORD,
   },
-  connectionTimeout: 30000,
-  greetingTimeout: 30000,
-  socketTimeout: 30000,
 });
 
 app.get("/", (req, res) => {
@@ -65,10 +63,42 @@ app.post("/api/send-reset-email", async (req, res) => {
 
     await admin.auth().getUserByEmail(cleanEmail);
 
-    const resetLink = await admin.auth().generatePasswordResetLink(cleanEmail, {
-      url: process.env.FRONTEND_URL || "http://localhost:5173",
+    const resetLink = await admin.auth().generatePasswordResetLink(email, {
+      url:
+        process.env.RESET_REDIRECT_URL ||
+        "https://crispyharvest88.github.io/crispyharvest88/",
       handleCodeInApp: false,
     });
+
+    const { data, error } = await resend.emails.send({
+      from: FROM_EMAIL,
+      to: [email],
+      subject: "Reset your Crispy Harvest 88 password",
+      html: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.6;">
+          <h2>Reset your Crispy Harvest 88 password</h2>
+          <p>We received a request to reset your password.</p>
+          <p>
+            <a href="${resetLink}" style="display:inline-block;padding:12px 18px;background:#A37F61;color:#ffffff;text-decoration:none;border-radius:8px;">
+              Reset Password
+            </a>
+          </p>
+          <p>If the button does not work, copy and paste this link into your browser:</p>
+          <p>${resetLink}</p>
+          <p>If you did not request this, you can ignore this email.</p>
+        </div>
+      `,
+    });
+
+    if (error) {
+      console.error("RESEND EMAIL ERROR:", error);
+      return res.status(500).json({
+        message: error.message || "Failed to send reset email.",
+      });
+    }
+
+    console.log("Reset email sent with Resend:", data?.id);
+    return res.json({ message: "Reset email sent." });
 
     await transporter.sendMail({
       from: `"Crispy Harvest" <${process.env.GMAIL_USER}>`,
