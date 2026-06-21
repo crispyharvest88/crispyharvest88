@@ -1108,3 +1108,391 @@ body::before{display:none !important;}
 .detail-screen {
   zoom: 0.9;
 }
+/* Self-collection options */
+.collection-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.collection-option-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid #eadfd6;
+  border-radius: 14px;
+  background: #fffaf6;
+  cursor: pointer;
+  font-size: 14px;
+  color: #4f3b2f;
+  line-height: 1.4;
+}
+
+.collection-option-card input {
+  margin-top: 3px;
+  accent-color: #a37f61;
+}
+
+.collection-option-card.selected {
+  border-color: #a37f61;
+  background: #f7efe8;
+}
+
+/* PayNow QR */
+.paynow-qr-wrap {
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+  border-radius: 16px;
+  background: #fffaf6;
+  border: 1px solid #eadfd6;
+}
+
+.paynow-qr-wrap img {
+  width: 220px;
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+}
+
+
+/* Balanced desktop checkout layout */
+@media (min-width: 1000px) {
+  .cart-content.checkout-layout {
+    max-width: 1180px !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(380px, 1fr) !important;
+    gap: 18px !important;
+    align-items: start !important;
+    padding-bottom: 90px !important;
+  }
+
+  .checkout-left-column,
+  .checkout-right-column {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 16px !important;
+    min-width: 0 !important;
+  }
+
+  .checkout-bottom-row {
+    grid-column: 1 / -1 !important;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 420px) !important;
+    gap: 18px !important;
+    align-items: stretch !important;
+  }
+
+  .checkout-bottom-row .checkout-price-card {
+    margin: 0 !important;
+    height: 100% !important;
+  }
+
+  .checkout-bottom-row .price-breakdown-card {
+    height: calc(100% - 34px) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    gap: 8px !important;
+  }
+
+  .checkout-bottom-row .place-order-footer {
+    position: static !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    width: 100% !important;
+    height: 100% !important;
+    margin: 0 !important;
+    padding: 20px !important;
+    border-radius: 26px !important;
+    border-top: 1px solid rgba(255,255,255,0.78) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    gap: 14px !important;
+  }
+
+  .checkout-bottom-row .place-order-summary {
+    width: 100% !important;
+  }
+
+  .checkout-bottom-row .place-order-button {
+    width: 100% !important;
+    height: 48px !important;
+  }
+
+  .checkout-payment-card .payment-card {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 210px !important;
+    gap: 18px !important;
+    align-items: center !important;
+    padding: 18px !important;
+  }
+
+  .checkout-payment-card .paynow-badge {
+    width: fit-content !important;
+    margin: 0 0 8px 0 !important;
+  }
+
+  .checkout-payment-card .payment-card p {
+    grid-column: 1 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    font-size: 12.5px !important;
+    line-height: 18px !important;
+  }
+
+  .checkout-payment-card .paynow-qr-wrap {
+    grid-column: 2 !important;
+    grid-row: 1 / span 2 !important;
+    margin: 0 !important;
+    padding: 12px !important;
+    align-self: center !important;
+  }
+
+  .checkout-payment-card .paynow-qr-wrap img {
+    width: 175px !important;
+  }
+}
+
+@media (max-width: 999px) {
+  .checkout-bottom-row {
+    display: block !important;
+  }
+}
+
+/* Balance desktop checkout bottom row */
+@media (min-width: 900px) {
+  .checkout-bottom-row {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 24px;
+    align-items: stretch;
+  }
+
+  .checkout-bottom-row .checkout-price-card,
+  .checkout-bottom-row .place-order-footer {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+  }
+
+  .checkout-bottom-row .place-order-footer {
+    position: static;
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .checkout-bottom-row .place-order-button {
+    width: 100%;
+  }
+}
+
+/* Final desktop checkout balance fix */
+@media (min-width: 1000px) {
+  .cart-content.checkout-layout {
+    max-width: 1180px !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 24px !important;
+    align-items: start !important;
+  }
+
+  .checkout-left-column,
+  .checkout-right-column {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .checkout-bottom-row {
+    grid-column: 1 / -1 !important;
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 24px !important;
+    align-items: stretch !important;
+    width: 100% !important;
+  }
+
+  .checkout-bottom-row .checkout-price-card {
+    grid-column: 1 !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+  }
+
+  .checkout-bottom-row .place-order-footer {
+    grid-column: 2 !important;
+    position: static !important;
+    left: auto !important;
+    right: auto !important;
+    bottom: auto !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 250px !important;
+    margin: 0 !important;
+    padding: 28px !important;
+    border-radius: 28px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+  }
+
+  .checkout-bottom-row .place-order-button {
+    width: 100% !important;
+  }
+}
+
+/* Checkout card height adjustments */
+@media (min-width: 1000px) {
+  .checkout-price-card,
+  .place-order-footer {
+    min-height: 260px !important;
+  }
+
+  .checkout-payment-card {
+    min-height: 300px !important;
+  }
+
+  .payment-card {
+    min-height: 240px !important;
+  }
+}
+
+/* Final checkout layout polish */
+
+/* Move PayNow instructions higher on desktop */
+@media (min-width: 1000px) {
+  .checkout-payment-card .payment-card {
+    align-items: start !important;
+  }
+
+  .checkout-payment-card .paynow-badge {
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    margin-top: 8px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .checkout-payment-card .payment-card p {
+    grid-column: 1 !important;
+    grid-row: 2 !important;
+    align-self: start !important;
+    margin-top: 4px !important;
+    line-height: 1.55 !important;
+  }
+
+  .checkout-payment-card .paynow-qr-wrap {
+    grid-column: 2 !important;
+    grid-row: 1 / span 2 !important;
+    align-self: center !important;
+  }
+
+  /* Decrease height of the bottom two cards */
+  .checkout-bottom-row .checkout-price-card,
+  .checkout-bottom-row .place-order-footer {
+    min-height: 190px !important;
+    padding: 22px !important;
+  }
+
+  .checkout-bottom-row .price-breakdown-card {
+    padding: 22px !important;
+  }
+
+  .checkout-bottom-row .place-order-footer {
+    justify-content: center !important;
+  }
+}
+
+.instructions-box {
+  min-height: 105px !important;
+  height: 115px !important;
+}
+
+/* Mobile checkout layout polish only */
+@media (max-width: 768px) {
+  .checkout-layout,
+  .cart-content.checkout-layout {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 16px !important;
+  }
+
+  .checkout-left-column,
+  .checkout-right-column,
+  .checkout-bottom-row {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 16px !important;
+  }
+
+  /* Slightly taller special instructions on mobile */
+  .checkout-instructions-card {
+    min-height: 185px !important;
+  }
+
+  .instructions-box {
+    min-height: 105px !important;
+    height: 105px !important;
+  }
+
+  /* Mobile PayNow card */
+  .checkout-payment-card .payment-card {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    padding: 18px !important;
+  }
+
+  .checkout-payment-card .paynow-badge {
+    align-self: flex-start !important;
+    margin-bottom: 0 !important;
+  }
+
+  .checkout-payment-card .payment-card p {
+    margin: 0 !important;
+    font-size: 13px !important;
+    line-height: 1.5 !important;
+  }
+
+  .checkout-payment-card .paynow-qr-wrap {
+    width: 100% !important;
+    margin-top: 4px !important;
+    padding: 12px !important;
+  }
+
+  .checkout-payment-card .paynow-qr-wrap img {
+    width: 200px !important;
+    max-width: 100% !important;
+    margin: 0 auto !important;
+  }
+
+  /* Mobile Price Details + Submit Order */
+  .checkout-bottom-row .checkout-price-card,
+  .checkout-bottom-row .place-order-footer {
+    width: 100% !important;
+    min-height: auto !important;
+    padding: 18px !important;
+    margin: 0 !important;
+  }
+
+  .checkout-bottom-row .price-breakdown-card {
+    padding: 18px !important;
+  }
+
+  .checkout-bottom-row .place-order-footer {
+    position: static !important;
+    border-radius: 24px !important;
+  }
+
+  .checkout-bottom-row .place-order-button {
+    width: 100% !important;
+  }
+}

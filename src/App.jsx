@@ -41,6 +41,7 @@ import { deleteDoc, setDoc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged, sendPasswordResetEmail } from "firebase/auth";
 
 const BRAND_LOGO = `${import.meta.env.BASE_URL}img/crispylogo.png`;
+const PAYNOW_QR = `${import.meta.env.BASE_URL}img/paynow_qr.jpg`;
 const BUSINESS_WHATSAPP_NUMBER = "6587977816";
 const ADMIN_EMAILS = ["crispyharvest88.biz@gmail.com"];
 
@@ -131,6 +132,21 @@ const INITIAL_STOCK = {
   "5": 7,
 };
 
+const COLLECTION_OPTIONS = [
+  {
+    id: "bugis-27-june",
+    label: "Self-collection at Curbside Crafters (Bugis) – 27 June",
+  },
+  {
+    id: "bugis-28-june",
+    label: "Self-collection at Curbside Crafters (Bugis) – 28 June",
+  },
+  {
+    id: "821313",
+    label: "Self-collection at 821313 (not available on 27 & 28 June)",
+  },
+];
+
 const SCREEN_STORAGE_KEY = "crispyharvest_current_screen";
 const TAB_STORAGE_KEY = "crispyharvest_active_tab";
 const SELECTED_COOKIE_STORAGE_KEY = "crispyharvest_selected_cookie";
@@ -192,6 +208,7 @@ export default function App() {
   const [searchText, setSearchText] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [specialInstructions, setSpecialInstructions] = useState("");
+  const [collectionOption, setCollectionOption] = useState("");
 
   const [promoCode, setPromoCode] = useState("");
   const [promoMessage, setPromoMessage] = useState(
@@ -212,6 +229,10 @@ export default function App() {
 
   const total = Math.max(subtotal - discount, 0);
   const isAdmin = ADMIN_EMAILS.includes(currentUser?.email || "");
+
+  const selectedCollectionLabel =
+    COLLECTION_OPTIONS.find((option) => option.id === collectionOption)?.label ||
+    "";
 
   const filteredCookies = useMemo(() => {
     const search = searchText.trim().toLowerCase();
@@ -669,8 +690,8 @@ export default function App() {
       : "";
 
     const message =
-      `Hi! I would like to submit my Crispy Harvest order.\n\n` +
-      `Order ID: ${orderId}\n` +
+      `Hi! I would like to submit my order to @crispyharvest88.\n\n` +
+      `Order ID: ${orderId}\n\n` +
       `Customer Name: ${getDisplayName()}\n` +
       `Customer Email: ${currentUser?.email || loginEmail}\n` +
       `Customer Phone: ${customerPhone.trim()}\n\n` +
@@ -682,8 +703,8 @@ export default function App() {
       `${promoText}` +
       `${instructionsText}\n` +
       `Payment Status: Pending PayNow payment verification\n` +
-      `Collection Type: Self-collection\n\n` +
-      `Please send me the PayNow payment instructions.\n\n` +
+      `Collection Type: ${selectedCollectionLabel || "Self-collection"}\n\n` +
+      `Please make payment using the PayNow QR code shown in the app and send a screenshot of your successful payment together with this WhatsApp message for verification.\n\n` +
       `This WhatsApp message will be used as my collection receipt.`;
 
     return `https://wa.me/${BUSINESS_WHATSAPP_NUMBER}?text=${encodeURIComponent(
@@ -702,6 +723,11 @@ export default function App() {
       return;
     }
 
+    if (!collectionOption) {
+      alert("Please select a self-collection option.");
+      return;
+    }
+
     if (!currentUser) {
       alert("Please log in before placing an order.");
       return;
@@ -716,6 +742,8 @@ export default function App() {
       userEmail: currentUser.email,
       customerName: getDisplayName(),
       customerPhone: customerPhone.trim(),
+      collectionOption,
+      collectionType: selectedCollectionLabel,
       date: new Date().toLocaleDateString("en-SG", {
         month: "short",
         day: "numeric",
@@ -754,6 +782,7 @@ export default function App() {
       setQuantities(emptyQuantities);
       setCustomerPhone("");
       setSpecialInstructions("");
+      setCollectionOption("");
       setPromoCode("");
       setDiscount(0);
       setPromoMessage("No promo code available right now.");
@@ -913,7 +942,7 @@ export default function App() {
       lower.includes("paynow") ||
       lower.includes("qr")
     ) {
-      return "Payment instructions will be sent through WhatsApp after your order is submitted. Payment must be made within 15 minutes upon confirmation.";
+      return "Please scan the PayNow QR code during checkout. After making payment, send a screenshot of your successful payment together with the WhatsApp order message for verification.";
     }
 
     return "Thanks for reaching out! Our team will look into that shortly. 🍪";
@@ -950,7 +979,7 @@ export default function App() {
       {
         id: Date.now() + 1,
         from: "support",
-        text: `Order ${order.id} is currently: ${order.status}. Items: ${orderItems}. Total: $${order.total.toFixed(2)}. Please show your WhatsApp order message during collection.`,
+        text: `Order ${order.id} is currently: ${order.status}. Items: ${orderItems}. Collection: ${order.collectionType || "Self-collection"}. Total: $${order.total.toFixed(2)}. Please show your WhatsApp order message during collection.`,
       },
     ]);
 
@@ -1527,7 +1556,7 @@ export default function App() {
 
               <div>
                 <h3>Self-Collection Only</h3>
-                <p>No delivery available. Pick up at our collection point.</p>
+                <p>No delivery available. Please choose one self-collection option below.</p>
               </div>
             </div>
 
@@ -1602,18 +1631,54 @@ export default function App() {
               </label>
             </div>
 
+            <div className="checkout-card checkout-collection-card">
+              <h3 className="checkout-card-title collection-title">
+                Self-Collection Option
+              </h3>
+
+              <div className="collection-options-list">
+                {COLLECTION_OPTIONS.map((option) => (
+                  <label
+                    className={`collection-option-card ${
+                      collectionOption === option.id ? "selected" : ""
+                    }`}
+                    key={option.id}
+                  >
+                    <input
+                      type="radio"
+                      name="collectionOption"
+                      value={option.id}
+                      checked={collectionOption === option.id}
+                      onChange={() => setCollectionOption(option.id)}
+                    />
+
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <div className="checkout-card checkout-payment-card">
               <h3 className="checkout-card-title payment-title">Payment</h3>
 
               <div className="payment-card">
                 <div className="paynow-badge">PayNow</div>
                 <p>
-                  Payment instructions will be sent through WhatsApp after your
-                  order is submitted.
+                  Please scan the PayNow QR code below to make payment. After
+                  payment, submit your order and send a screenshot of your
+                  successful payment together with the WhatsApp message for
+                  verification.
                 </p>
+
+                <div className="paynow-qr-wrap">
+                  <img src={PAYNOW_QR} alt="Crispy Harvest 88 PayNow QR code" />
+                </div>
               </div>
             </div>
 
+          </div>
+
+          <div className="checkout-bottom-row">
             <div className="checkout-card checkout-price-card">
               <h3 className="checkout-card-title price-title">Price Details</h3>
 
@@ -1662,7 +1727,7 @@ export default function App() {
 
               <button
                 className={`place-order-button ${
-                  !customerPhone.trim() ? "disabled" : ""
+                  !customerPhone.trim() || !collectionOption ? "disabled" : ""
                 }`}
                 onClick={handlePlaceOrder}
               >
@@ -1852,6 +1917,10 @@ export default function App() {
               ))}
 
               <p className="past-order-item">Contact: {order.customerPhone}</p>
+
+              <p className="past-order-item">
+                Collection: {order.collectionType || "Self-collection"}
+              </p>
 
               {order.specialInstructions && (
                 <p className="past-order-item">
