@@ -38,7 +38,7 @@ import {
 } from "./firebaseConfig";
 
 import { deleteDoc, setDoc, getDoc } from "firebase/firestore";
-import { onAuthStateChanged, sendPasswordResetEmail } from "firebase/auth";
+import { onAuthStateChanged } from "firebase/auth";
 
 const BRAND_LOGO = `${import.meta.env.BASE_URL}img/crispylogo.png`;
 const PAYNOW_QR = `${import.meta.env.BASE_URL}img/paynow_qr.jpg`;
@@ -492,39 +492,38 @@ export default function App() {
   };
 
   const handleForgotPassword = async () => {
-  setLoginError("");
-  setResetMessage("");
+    setLoginError("");
+    setResetMessage("");
 
-  const email = loginEmail.trim();
+    const email = loginEmail.trim();
 
-  if (!email) {
-    setResetMessage("Please enter your email address first.");
-    return;
-  }
-
-  try {
-    await sendPasswordResetEmail(auth, email, {
-      url: "https://crispyharvest88.github.io/crispyharvest88/",
-      handleCodeInApp: false,
-    });
-
-    setResetMessage("Password reset email sent. Please check inbox or spam.");
-  } catch (error) {
-    console.log("Firebase reset error:", error.code, error.message);
-
-    if (error.code === "auth/user-not-found") {
-      setResetMessage("No account found with this email.");
-    } else if (error.code === "auth/invalid-email") {
-      setResetMessage("Please enter a valid email address.");
-    } else if (error.code === "auth/too-many-requests") {
-      setResetMessage("Too many reset attempts. Please wait and try again later.");
-    } else if (error.code === "auth/unauthorized-continue-uri") {
-      setResetMessage("Reset link domain is not authorised in Firebase.");
-    } else {
-      setResetMessage("Failed to send reset email. Please try again.");
+    if (!email) {
+      setResetMessage("Please enter your email address first.");
+      return;
     }
-  }
-};
+
+    try {
+      const response = await fetch("https://crispyharvest-backend.onrender.com/api/send-reset-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ email }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setResetMessage(data.message || "Failed to send reset email.");
+        return;
+      }
+
+      setResetMessage("Password reset email sent. Please check inbox or spam.");
+    } catch (error) {
+      console.log("Custom reset error:", error);
+      setResetMessage("Could not contact reset email server.");
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -868,15 +867,18 @@ export default function App() {
 
     if (
       lower.includes("need more help") ||
+      lower.includes("talk to human") ||
       lower.includes("human") ||
       lower.includes("staff") ||
       lower.includes("person") ||
       lower.includes("agent") ||
-      lower.includes("talk to someone")
+      lower.includes("talk to someone") ||
+      lower.includes("telegram") ||
+      lower.includes("instagram")
     ) {
       return (
-        "If you have already placed an order, please continue through the WhatsApp order message so we can find your order details faster.\n\n" +
-        "For pre-order questions, you can ask me about flavours, prices, payment, collection, delivery, allergens, or storage."
+        "You can text me on Telegram at @siriusrayy or DM us on Instagram @crispyharvest88.\n\n" +
+        "If you have already placed an order, please include your order ID so we can check it faster."
       );
     }
 
@@ -1781,7 +1783,7 @@ export default function App() {
         ))}
 
         <div className="quick-replies-row">
-          {["Where is collection?", "Can I reserve first?", "Late collection", "Quality concerns", "Need more help"].map(
+          {["Where is collection?", "Can I reserve first?", "Late collection", "Quality concerns", "Talk to human"].map(
             (chip) => (
               <button key={chip} onClick={() => sendMessage(chip)}>
                 {chip}
