@@ -36,7 +36,7 @@ import {
   serverTimestamp,
 } from "./firebaseConfig";
 
-import { deleteDoc, setDoc, getDoc, runTransaction } from "firebase/firestore";
+import { deleteDoc, setDoc, getDoc, runTransaction, deleteField } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 
 const BRAND_LOGO = `${import.meta.env.BASE_URL}img/crispylogo.png`;
@@ -696,6 +696,13 @@ export default function App() {
         return;
       }
 
+      if (promo.reserved) {
+        setDiscount(0);
+        setAppliedPromo(null);
+        setPromoMessage("This promo code is currently reserved for another pending order.");
+        return;
+      }
+
       const amount = Number(promo.amount || 0);
       const discountAmount = Math.min(amount, subtotal);
 
@@ -852,14 +859,105 @@ export default function App() {
 
     try {
       const orderRef = doc(collection(db, "orders"));
+      const stockRef = doc(db, "settings", "stockAvailability");
 
-      // Save the order as pending first.
-      // Stock and promo codes are only finalised after admin verifies PayNow payment.
-      await setDoc(orderRef, newOrder);
+      let updatedStock = null;
+
+      await runTransaction(db, async (transaction) => {
+        const stockSnap = await transaction.get(stockRef);
+
+        const currentStock = stockSnap.exists()
+          ? {
+              ...INITIAL_STOCK,
+              ...(stockSnap.data().stockById || {}),
+            }
+          : { ...INITIAL_STOCK };
+
+        const nextStock = { ...currentStock };
+
+        for (const item of newOrder.items || []) {
+          const currentQty = Number(nextStock[item.id] || 0);
+          const orderQty = Number(item.quantity || 0);
+
+          if (currentQty < orderQty) {
+            throw new Error(`insufficient-stock:${item.name}`);
+          }
+
+          nextStock[item.id] = currentQty - orderQty;
+        }
+
+        if (appliedPromo?.code) {
+          const promoRef = doc(db, "promoCodes", appliedPromo.code);
+          const promoSnap = await transaction.get(promoRef);
+
+          if (!promoSnap.exists()) {
+            throw new Error("promo-not-found");
+          }
+
+          const latestPromo = promoSnap.data();
+
+          if (!latestPromo.active || latestPromo.used) {
+            throw new Error("promo-already-used");
+          }
+
+          if (latestPromo.reserved) {
+            throw new Error("promo-already-reserved");
+          }
+
+          const expectedDiscount = Math.min(
+            Number(latestPromo.amount || 0),
+            Number(newOrder.subtotal || 0)
+          );
+
+          if (Math.abs(expectedDiscount - Number(newOrder.discount || 0)) > 0.01) {
+            throw new Error("promo-discount-mismatch");
+          }
+
+          transaction.update(promoRef, {
+            reserved: true,
+            reservedBy: currentUser.uid,
+            reservedByEmail: currentUser.email,
+            reservedOrderId: orderId,
+            reservedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        transaction.set(
+          stockRef,
+          {
+            stockById: nextStock,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        transaction.set(orderRef, {
+          ...newOrder,
+          status: "Pending PayNow payment verification",
+          paymentStatus: "Pending",
+          stockReserved: true,
+          stockDeducted: false,
+          promoReserved: Boolean(appliedPromo?.code),
+          paymentDeadlineAtMillis: createdAtMillis + 15 * 60 * 1000,
+          paymentDeadlineNote: "Payment should be verified within 15 minutes, otherwise admin may cancel and release stock.",
+        });
+
+        updatedStock = nextStock;
+      });
+
+      if (updatedStock) {
+        setStockById(updatedStock);
+      }
 
       const orderWithFirestoreId = {
         ...newOrder,
         firestoreId: orderRef.id,
+        stockReserved: true,
+        stockDeducted: false,
+        promoReserved: Boolean(appliedPromo?.code),
+        paymentDeadlineAtMillis: createdAtMillis + 15 * 60 * 1000,
+        paymentDeadlineNote: "Payment should be verified within 15 minutes, otherwise admin may cancel and release stock.",
       };
 
       setOrders((prev) => sortOrders([orderWithFirestoreId, ...prev]));
@@ -887,11 +985,34 @@ export default function App() {
         return;
       }
 
+      if (error.message === "promo-already-reserved") {
+        alert("This promo code is already reserved for another pending order. Please use another code.");
+        setDiscount(0);
+        setAppliedPromo(null);
+        setPromoMessage("This promo code is currently reserved.");
+        return;
+      }
+
       if (error.message === "promo-not-found") {
         alert("Promo code could not be found. Please check the code and try again.");
         setDiscount(0);
         setAppliedPromo(null);
         setPromoMessage("Invalid promo code.");
+        return;
+      }
+
+      if (error.message === "promo-discount-mismatch") {
+        alert("The promo discount no longer matches this code. Please apply the promo code again.");
+        setDiscount(0);
+        setAppliedPromo(null);
+        setPromoMessage("Please apply the promo code again.");
+        return;
+      }
+
+      if (error.message.startsWith("insufficient-stock:")) {
+        const itemName = error.message.replace("insufficient-stock:", "");
+        alert(`${itemName} does not have enough stock left. Please update your cart.`);
+        await loadStockFromFirestore();
         return;
       }
 
@@ -915,8 +1036,13 @@ export default function App() {
       return;
     }
 
+    if (order.paymentStatus === "Cancelled") {
+      alert("This order has already been cancelled.");
+      return;
+    }
+
     const confirmPaid = window.confirm(
-      `Only continue after you have verified the PayNow payment for ${order.id}. Stock will be deducted after this.`
+      `Only continue after you have verified the PayNow payment for ${order.id}. Reserved stock will be confirmed, not deducted again.`
     );
 
     if (!confirmPaid) return;
@@ -940,26 +1066,45 @@ export default function App() {
           throw new Error("already-paid");
         }
 
-        const stockSnap = await transaction.get(stockRef);
+        if (latestOrder.paymentStatus === "Cancelled") {
+          throw new Error("already-cancelled");
+        }
 
-        const currentStock = stockSnap.exists()
-          ? {
-              ...INITIAL_STOCK,
-              ...(stockSnap.data().stockById || {}),
+        // New orders already reserve stock when submitted.
+        // Older pending orders may not have stockReserved yet, so this fallback deducts once.
+        if (!latestOrder.stockReserved) {
+          const stockSnap = await transaction.get(stockRef);
+
+          const currentStock = stockSnap.exists()
+            ? {
+                ...INITIAL_STOCK,
+                ...(stockSnap.data().stockById || {}),
+              }
+            : { ...INITIAL_STOCK };
+
+          const nextStock = { ...currentStock };
+
+          for (const item of latestOrder.items || []) {
+            const currentQty = Number(nextStock[item.id] || 0);
+            const orderQty = Number(item.quantity || 0);
+
+            if (currentQty < orderQty) {
+              throw new Error(`insufficient-stock:${item.name}`);
             }
-          : { ...INITIAL_STOCK };
 
-        const nextStock = { ...currentStock };
-
-        for (const item of latestOrder.items || []) {
-          const currentQty = Number(nextStock[item.id] || 0);
-          const orderQty = Number(item.quantity || 0);
-
-          if (currentQty < orderQty) {
-            throw new Error(`insufficient-stock:${item.name}`);
+            nextStock[item.id] = currentQty - orderQty;
           }
 
-          nextStock[item.id] = currentQty - orderQty;
+          transaction.set(
+            stockRef,
+            {
+              stockById: nextStock,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+
+          updatedStock = nextStock;
         }
 
         const latestPromoCode =
@@ -981,6 +1126,14 @@ export default function App() {
             throw new Error("promo-already-used");
           }
 
+          if (
+            latestPromo.reserved &&
+            latestPromo.reservedOrderId &&
+            latestPromo.reservedOrderId !== (latestOrder.id || order.id)
+          ) {
+            throw new Error("promo-reserved-by-other-order");
+          }
+
           const expectedDiscount = Math.min(
             Number(latestPromo.amount || 0),
             Number(latestOrder.subtotal || 0)
@@ -994,6 +1147,11 @@ export default function App() {
 
           transaction.update(promoRef, {
             used: true,
+            reserved: false,
+            reservedBy: deleteField(),
+            reservedByEmail: deleteField(),
+            reservedOrderId: deleteField(),
+            reservedAt: deleteField(),
             usedBy: latestOrder.userId || currentUser.uid,
             usedByEmail: latestOrder.userEmail || currentUser.email,
             usedOrderId: latestOrder.id || order.id,
@@ -1002,25 +1160,17 @@ export default function App() {
           });
         }
 
-        transaction.set(
-          stockRef,
-          {
-            stockById: nextStock,
-            updatedAt: serverTimestamp(),
-          },
-          { merge: true }
-        );
-
         transaction.update(orderRef, {
           status: "Paid / Payment Verified",
           paymentStatus: "Paid",
           paidAt: serverTimestamp(),
+          stockReserved: true,
           stockDeducted: true,
+          stockConfirmed: true,
+          promoReserved: false,
           promoFinalised: Boolean(latestPromoCode),
           updatedAt: serverTimestamp(),
         });
-
-        updatedStock = nextStock;
       });
 
       if (updatedStock) {
@@ -1034,7 +1184,10 @@ export default function App() {
                 ...item,
                 status: "Paid / Payment Verified",
                 paymentStatus: "Paid",
+                stockReserved: true,
                 stockDeducted: true,
+                stockConfirmed: true,
+                promoReserved: false,
                 promoFinalised: Boolean(
                   item.promoCode && item.promoCode !== "None"
                 ),
@@ -1043,12 +1196,17 @@ export default function App() {
         )
       );
 
-      alert("Payment verified. Stock has been deducted.");
+      alert("Payment verified. Reserved stock has been confirmed.");
     } catch (error) {
       console.log("Mark as paid error:", error);
 
       if (error.message === "already-paid") {
         alert("This order was already marked as paid. Stock was not deducted again.");
+        return;
+      }
+
+      if (error.message === "already-cancelled") {
+        alert("This order has already been cancelled.");
         return;
       }
 
@@ -1067,6 +1225,11 @@ export default function App() {
         return;
       }
 
+      if (error.message === "promo-reserved-by-other-order") {
+        alert("The promo code on this order is reserved by another order. Please check Firestore before marking as paid.");
+        return;
+      }
+
       if (error.message === "promo-discount-mismatch") {
         alert("The promo discount does not match the promo code setup. Please check the order before marking as paid.");
         return;
@@ -1082,6 +1245,169 @@ export default function App() {
     }
   };
 
+  const cancelOrderAndReleaseStock = async (order) => {
+    if (!isAdmin) {
+      alert("Only admin can cancel orders.");
+      return;
+    }
+
+    if (!order.firestoreId) {
+      alert("This order cannot be cancelled because it has no Firestore ID.");
+      return;
+    }
+
+    if (order.paymentStatus === "Paid") {
+      alert("This order is already paid. Do not release stock automatically.");
+      return;
+    }
+
+    if (order.paymentStatus === "Cancelled") {
+      alert("This order has already been cancelled.");
+      return;
+    }
+
+    const shouldCancel = window.confirm(
+      `Cancel order ${order.id} and release the reserved stock back to customers? Only do this if payment was not received or the order is void.`
+    );
+
+    if (!shouldCancel) return;
+
+    const orderRef = doc(db, "orders", order.firestoreId);
+    const stockRef = doc(db, "settings", "stockAvailability");
+
+    let updatedStock = null;
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const orderSnap = await transaction.get(orderRef);
+
+        if (!orderSnap.exists()) {
+          throw new Error("order-not-found");
+        }
+
+        const latestOrder = orderSnap.data();
+
+        if (latestOrder.paymentStatus === "Paid") {
+          throw new Error("already-paid");
+        }
+
+        if (latestOrder.paymentStatus === "Cancelled") {
+          throw new Error("already-cancelled");
+        }
+
+        if (latestOrder.stockReserved) {
+          const stockSnap = await transaction.get(stockRef);
+
+          const currentStock = stockSnap.exists()
+            ? {
+                ...INITIAL_STOCK,
+                ...(stockSnap.data().stockById || {}),
+              }
+            : { ...INITIAL_STOCK };
+
+          const nextStock = { ...currentStock };
+
+          for (const item of latestOrder.items || []) {
+            const currentQty = Number(nextStock[item.id] || 0);
+            const orderQty = Number(item.quantity || 0);
+
+            nextStock[item.id] = currentQty + orderQty;
+          }
+
+          transaction.set(
+            stockRef,
+            {
+              stockById: nextStock,
+              updatedAt: serverTimestamp(),
+            },
+            { merge: true }
+          );
+
+          updatedStock = nextStock;
+        }
+
+        const latestPromoCode =
+          latestOrder.promoCode && latestOrder.promoCode !== "None"
+            ? String(latestOrder.promoCode).trim().toUpperCase()
+            : "";
+
+        if (latestPromoCode && latestOrder.promoReserved) {
+          const promoRef = doc(db, "promoCodes", latestPromoCode);
+          const promoSnap = await transaction.get(promoRef);
+
+          if (promoSnap.exists()) {
+            const latestPromo = promoSnap.data();
+
+            if (
+              latestPromo.reserved &&
+              latestPromo.reservedOrderId === (latestOrder.id || order.id) &&
+              !latestPromo.used
+            ) {
+              transaction.update(promoRef, {
+                reserved: false,
+                reservedBy: deleteField(),
+                reservedByEmail: deleteField(),
+                reservedOrderId: deleteField(),
+                reservedAt: deleteField(),
+                updatedAt: serverTimestamp(),
+              });
+            }
+          }
+        }
+
+        transaction.update(orderRef, {
+          status: "Cancelled / Stock Released",
+          paymentStatus: "Cancelled",
+          stockReserved: false,
+          stockReleased: true,
+          promoReserved: false,
+          cancelledAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      });
+
+      if (updatedStock) {
+        setStockById(updatedStock);
+      }
+
+      setOrders((prev) =>
+        prev.map((item) =>
+          item.firestoreId === order.firestoreId
+            ? {
+                ...item,
+                status: "Cancelled / Stock Released",
+                paymentStatus: "Cancelled",
+                stockReserved: false,
+                stockReleased: true,
+                promoReserved: false,
+              }
+            : item
+        )
+      );
+
+      alert("Order cancelled. Reserved stock has been released.");
+    } catch (error) {
+      console.log("Cancel order error:", error);
+
+      if (error.message === "already-paid") {
+        alert("This order is already paid. Stock was not released.");
+        return;
+      }
+
+      if (error.message === "already-cancelled") {
+        alert("This order has already been cancelled.");
+        return;
+      }
+
+      if (error.message === "order-not-found") {
+        alert("This order could not be found.");
+        return;
+      }
+
+      alert("Could not cancel order. Please try again.");
+    }
+  };
+
   const deleteOrder = async (order) => {
     if (!isAdmin) {
       alert("Only admin can delete orders.");
@@ -1090,6 +1416,11 @@ export default function App() {
 
     if (!order.firestoreId) {
       alert("This order cannot be deleted because it has no Firestore ID.");
+      return;
+    }
+
+    if (order.stockReserved && order.paymentStatus !== "Paid" && order.paymentStatus !== "Cancelled") {
+      alert("Please click Cancel / Release Stock before deleting this pending order, so the reserved stock is returned safely.");
       return;
     }
 
@@ -2200,14 +2531,27 @@ export default function App() {
                     Track
                   </button>
 
-                  {isAdmin && order.paymentStatus !== "Paid" && (
-                    <button
-                      className="reorder-btn"
-                      onClick={() => markOrderAsPaid(order)}
-                    >
-                      Mark as Paid
-                    </button>
-                  )}
+                  {isAdmin &&
+                    order.paymentStatus !== "Paid" &&
+                    order.paymentStatus !== "Cancelled" && (
+                      <button
+                        className="reorder-btn"
+                        onClick={() => markOrderAsPaid(order)}
+                      >
+                        Mark as Paid
+                      </button>
+                    )}
+
+                  {isAdmin &&
+                    order.paymentStatus !== "Paid" &&
+                    order.paymentStatus !== "Cancelled" && (
+                      <button
+                        className="delete-order-btn"
+                        onClick={() => cancelOrderAndReleaseStock(order)}
+                      >
+                        Cancel / Release
+                      </button>
+                    )}
 
                   {isAdmin && (
                     <button
