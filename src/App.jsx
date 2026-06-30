@@ -853,33 +853,9 @@ export default function App() {
     try {
       const orderRef = doc(collection(db, "orders"));
 
-      await runTransaction(db, async (transaction) => {
-        if (appliedPromo?.code) {
-          const promoRef = doc(db, "promoCodes", appliedPromo.code);
-          const promoSnap = await transaction.get(promoRef);
-
-          if (!promoSnap.exists()) {
-            throw new Error("promo-not-found");
-          }
-
-          const latestPromo = promoSnap.data();
-
-          if (!latestPromo.active || latestPromo.used) {
-            throw new Error("promo-already-used");
-          }
-
-          transaction.update(promoRef, {
-            used: true,
-            usedBy: currentUser.uid,
-            usedByEmail: currentUser.email,
-            usedOrderId: orderId,
-            usedAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          });
-        }
-
-        transaction.set(orderRef, newOrder);
-      });
+      // Save the order as pending first.
+      // Stock and promo codes are only finalised after admin verifies PayNow payment.
+      await setDoc(orderRef, newOrder);
 
       const orderWithFirestoreId = {
         ...newOrder,
@@ -934,13 +910,122 @@ export default function App() {
       return;
     }
 
+    if (order.paymentStatus === "Paid") {
+      alert("This order is already marked as paid.");
+      return;
+    }
+
+    const confirmPaid = window.confirm(
+      `Only continue after you have verified the PayNow payment for ${order.id}. Stock will be deducted after this.`
+    );
+
+    if (!confirmPaid) return;
+
+    const orderRef = doc(db, "orders", order.firestoreId);
+    const stockRef = doc(db, "settings", "stockAvailability");
+
+    let updatedStock = null;
+
     try {
-      await updateDoc(doc(db, "orders", order.firestoreId), {
-        status: "Paid / Payment Verified",
-        paymentStatus: "Paid",
-        paidAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+      await runTransaction(db, async (transaction) => {
+        const orderSnap = await transaction.get(orderRef);
+
+        if (!orderSnap.exists()) {
+          throw new Error("order-not-found");
+        }
+
+        const latestOrder = orderSnap.data();
+
+        if (latestOrder.paymentStatus === "Paid") {
+          throw new Error("already-paid");
+        }
+
+        const stockSnap = await transaction.get(stockRef);
+
+        const currentStock = stockSnap.exists()
+          ? {
+              ...INITIAL_STOCK,
+              ...(stockSnap.data().stockById || {}),
+            }
+          : { ...INITIAL_STOCK };
+
+        const nextStock = { ...currentStock };
+
+        for (const item of latestOrder.items || []) {
+          const currentQty = Number(nextStock[item.id] || 0);
+          const orderQty = Number(item.quantity || 0);
+
+          if (currentQty < orderQty) {
+            throw new Error(`insufficient-stock:${item.name}`);
+          }
+
+          nextStock[item.id] = currentQty - orderQty;
+        }
+
+        const latestPromoCode =
+          latestOrder.promoCode && latestOrder.promoCode !== "None"
+            ? String(latestOrder.promoCode).trim().toUpperCase()
+            : "";
+
+        if (latestPromoCode) {
+          const promoRef = doc(db, "promoCodes", latestPromoCode);
+          const promoSnap = await transaction.get(promoRef);
+
+          if (!promoSnap.exists()) {
+            throw new Error("promo-not-found");
+          }
+
+          const latestPromo = promoSnap.data();
+
+          if (!latestPromo.active || latestPromo.used) {
+            throw new Error("promo-already-used");
+          }
+
+          const expectedDiscount = Math.min(
+            Number(latestPromo.amount || 0),
+            Number(latestOrder.subtotal || 0)
+          );
+
+          const orderDiscount = Number(latestOrder.discount || 0);
+
+          if (Math.abs(expectedDiscount - orderDiscount) > 0.01) {
+            throw new Error("promo-discount-mismatch");
+          }
+
+          transaction.update(promoRef, {
+            used: true,
+            usedBy: latestOrder.userId || currentUser.uid,
+            usedByEmail: latestOrder.userEmail || currentUser.email,
+            usedOrderId: latestOrder.id || order.id,
+            usedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        transaction.set(
+          stockRef,
+          {
+            stockById: nextStock,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        transaction.update(orderRef, {
+          status: "Paid / Payment Verified",
+          paymentStatus: "Paid",
+          paidAt: serverTimestamp(),
+          stockDeducted: true,
+          promoFinalised: Boolean(latestPromoCode),
+          updatedAt: serverTimestamp(),
+        });
+
+        updatedStock = nextStock;
       });
+
+      if (updatedStock) {
+        setStockById(updatedStock);
+      }
 
       setOrders((prev) =>
         prev.map((item) =>
@@ -949,15 +1034,51 @@ export default function App() {
                 ...item,
                 status: "Paid / Payment Verified",
                 paymentStatus: "Paid",
+                stockDeducted: true,
+                promoFinalised: Boolean(
+                  item.promoCode && item.promoCode !== "None"
+                ),
               }
             : item
         )
       );
 
-      alert("Order marked as paid.");
+      alert("Payment verified. Stock has been deducted.");
     } catch (error) {
       console.log("Mark as paid error:", error);
-      alert("Could not update payment status.");
+
+      if (error.message === "already-paid") {
+        alert("This order was already marked as paid. Stock was not deducted again.");
+        return;
+      }
+
+      if (error.message === "order-not-found") {
+        alert("This order could not be found.");
+        return;
+      }
+
+      if (error.message === "promo-not-found") {
+        alert("The promo code on this order could not be found. Please check Firestore before marking as paid.");
+        return;
+      }
+
+      if (error.message === "promo-already-used") {
+        alert("The promo code on this order has already been used. Please check the order before marking as paid.");
+        return;
+      }
+
+      if (error.message === "promo-discount-mismatch") {
+        alert("The promo discount does not match the promo code setup. Please check the order before marking as paid.");
+        return;
+      }
+
+      if (error.message.startsWith("insufficient-stock:")) {
+        const itemName = error.message.replace("insufficient-stock:", "");
+        alert(`Not enough stock available for ${itemName}. Please check stock before marking as paid.`);
+        return;
+      }
+
+      alert("Could not mark order as paid. Please try again.");
     }
   };
 
@@ -1688,7 +1809,7 @@ export default function App() {
 
               <div>
                 <h3>Self-Collection Only</h3>
-                <p>No delivery available. Please choose one self-collection option below.</p>
+                <p>No delivery available. Collection is at 821313 only.</p>
               </div>
             </div>
 
