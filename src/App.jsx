@@ -133,16 +133,8 @@ const INITIAL_STOCK = {
 
 const COLLECTION_OPTIONS = [
   {
-    id: "bugis-27-june",
-    label: "Self-collection at Curbside Crafters (Bugis) – 27 June",
-  },
-  {
-    id: "bugis-28-june",
-    label: "Self-collection at Curbside Crafters (Bugis) – 28 June",
-  },
-  {
     id: "821313",
-    label: "Self-collection at 821313 (not available on 27 & 28 June)",
+    label: "Self-collection at 821313",
   },
 ];
 
