@@ -28,7 +28,6 @@ import {
   signOut,
   updateProfile,
   collection,
-  addDoc,
   getDocs,
   query,
   where,
@@ -37,7 +36,7 @@ import {
   serverTimestamp,
 } from "./firebaseConfig";
 
-import { deleteDoc, setDoc, getDoc } from "firebase/firestore";
+import { deleteDoc, setDoc, getDoc, runTransaction } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 
 const BRAND_LOGO = `${import.meta.env.BASE_URL}img/crispylogo.png`;
@@ -215,6 +214,8 @@ export default function App() {
     "No promo code available right now."
   );
   const [discount, setDiscount] = useState(0);
+  const [appliedPromo, setAppliedPromo] = useState(null);
+  const [isApplyingPromo, setIsApplyingPromo] = useState(false);
 
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
@@ -657,18 +658,106 @@ export default function App() {
     await saveStockToFirestore(nextStock);
   };
 
-  const applyPromoCode = () => {
+  const applyPromoCode = async () => {
     const code = promoCode.trim().toUpperCase();
 
     if (!code) {
       setDiscount(0);
-      setPromoMessage("No promo code available right now.");
+      setAppliedPromo(null);
+      setPromoMessage("Please enter a promo code.");
       return;
     }
 
-    setDiscount(0);
-    setPromoMessage("No active promo code is available right now.");
+    if (cartItems.length === 0 || subtotal <= 0) {
+      setDiscount(0);
+      setAppliedPromo(null);
+      setPromoMessage("Please add cookies to your cart before applying a promo code.");
+      return;
+    }
+
+    setIsApplyingPromo(true);
+
+    try {
+      const promoRef = doc(db, "promoCodes", code);
+      const promoSnap = await getDoc(promoRef);
+
+      if (!promoSnap.exists()) {
+        setDiscount(0);
+        setAppliedPromo(null);
+        setPromoMessage("Invalid promo code.");
+        return;
+      }
+
+      const promo = promoSnap.data();
+
+      if (!promo.active) {
+        setDiscount(0);
+        setAppliedPromo(null);
+        setPromoMessage("This promo code is not active.");
+        return;
+      }
+
+      if (promo.used) {
+        setDiscount(0);
+        setAppliedPromo(null);
+        setPromoMessage("This promo code has already been used.");
+        return;
+      }
+
+      const amount = Number(promo.amount || 0);
+      const discountAmount = Math.min(amount, subtotal);
+
+      if (discountAmount <= 0) {
+        setDiscount(0);
+        setAppliedPromo(null);
+        setPromoMessage("This promo code cannot be applied to your current cart.");
+        return;
+      }
+
+      setPromoCode(code);
+      setDiscount(discountAmount);
+      setAppliedPromo({
+        code,
+        label: promo.label || code,
+        amount,
+        discount: discountAmount,
+      });
+
+      setPromoMessage(
+        `${promo.label || code} applied. -$${discountAmount.toFixed(2)}`
+      );
+    } catch (error) {
+      console.log("Apply promo error:", error);
+      setDiscount(0);
+      setAppliedPromo(null);
+      setPromoMessage("Could not apply promo code. Please try again.");
+    } finally {
+      setIsApplyingPromo(false);
+    }
   };
+
+  useEffect(() => {
+    if (!appliedPromo) return;
+
+    if (subtotal <= 0) {
+      setDiscount(0);
+      setAppliedPromo(null);
+      setPromoMessage("Promo code removed because your cart is empty.");
+      return;
+    }
+
+    const nextDiscount = Math.min(Number(appliedPromo.amount || 0), subtotal);
+
+    setDiscount(nextDiscount);
+    setAppliedPromo((prev) =>
+      prev
+        ? {
+            ...prev,
+            discount: nextDiscount,
+          }
+        : prev
+    );
+  }, [subtotal, appliedPromo?.code, appliedPromo?.amount]);
 
   const buildWhatsAppUrl = (orderId) => {
     const orderSummary = cartItems
@@ -684,7 +773,9 @@ export default function App() {
       ? `\nSpecial Instructions: ${specialInstructions.trim()}\n`
       : "";
 
-    const promoText = promoCode.trim()
+    const promoText = appliedPromo
+      ? `\nPromo Code Applied: ${appliedPromo.code} (${appliedPromo.label})\n`
+      : promoCode.trim()
       ? `\nPromo Code Entered: ${promoCode.trim()} (No discount applied)\n`
       : "";
 
@@ -757,7 +848,8 @@ export default function App() {
       subtotal,
       discount,
       total,
-      promoCode: promoCode.trim() || "None",
+      promoCode: appliedPromo?.code || promoCode.trim() || "None",
+      promoLabel: appliedPromo?.label || "",
       specialInstructions: specialInstructions.trim(),
       status: "Pending PayNow payment verification",
       paymentStatus: "Pending",
@@ -767,11 +859,39 @@ export default function App() {
     };
 
     try {
-      const documentRef = await addDoc(collection(db, "orders"), newOrder);
+      const orderRef = doc(collection(db, "orders"));
+
+      await runTransaction(db, async (transaction) => {
+        if (appliedPromo?.code) {
+          const promoRef = doc(db, "promoCodes", appliedPromo.code);
+          const promoSnap = await transaction.get(promoRef);
+
+          if (!promoSnap.exists()) {
+            throw new Error("promo-not-found");
+          }
+
+          const latestPromo = promoSnap.data();
+
+          if (!latestPromo.active || latestPromo.used) {
+            throw new Error("promo-already-used");
+          }
+
+          transaction.update(promoRef, {
+            used: true,
+            usedBy: currentUser.uid,
+            usedByEmail: currentUser.email,
+            usedOrderId: orderId,
+            usedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        transaction.set(orderRef, newOrder);
+      });
 
       const orderWithFirestoreId = {
         ...newOrder,
-        firestoreId: documentRef.id,
+        firestoreId: orderRef.id,
       };
 
       setOrders((prev) => sortOrders([orderWithFirestoreId, ...prev]));
@@ -784,11 +904,29 @@ export default function App() {
       setCollectionOption("");
       setPromoCode("");
       setDiscount(0);
+      setAppliedPromo(null);
       setPromoMessage("No promo code available right now.");
 
       window.location.href = whatsappUrl;
     } catch (error) {
       console.log("Save order error:", error);
+
+      if (error.message === "promo-already-used") {
+        alert("This promo code has already been used. Please remove it or use another code.");
+        setDiscount(0);
+        setAppliedPromo(null);
+        setPromoMessage("This promo code has already been used.");
+        return;
+      }
+
+      if (error.message === "promo-not-found") {
+        alert("Promo code could not be found. Please check the code and try again.");
+        setDiscount(0);
+        setAppliedPromo(null);
+        setPromoMessage("Invalid promo code.");
+        return;
+      }
+
       alert("Order could not be saved. Please try again.");
     }
   };
@@ -1597,7 +1735,9 @@ export default function App() {
                   onChange={(event) => setPromoCode(event.target.value)}
                 />
 
-                <button onClick={applyPromoCode}>Apply</button>
+                <button onClick={applyPromoCode} disabled={isApplyingPromo}>
+                  {isApplyingPromo ? "Checking..." : "Apply"}
+                </button>
               </div>
 
               {promoMessage && (
